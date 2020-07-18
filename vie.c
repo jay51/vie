@@ -2,73 +2,177 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/ioctl.h>
 #include <errno.h>
+#include <string.h>
 #include <termios.h>
 #include "vie.h"
 
 
+#define CTRL_KEY(k) ((k) & 0x1f)
 
-struct termios orig_termios;
+struct editor_config {
+    int rows;
+    int cols;
+    struct termios orig_termios;
+} e_config;
+
+
+/* IO Buffer functions */
+struct O_buff {
+    char *b;
+    int len;
+} io_buff = {NULL, 0};
+
+void buff_append(struct O_buff* buff, char* s, int len){
+
+    char* ptr = realloc(buff->b, buff->len + len);
+    if(ptr == NULL){
+        perror("realloc");
+        exit(1);
+    }
+
+    memcpy(&ptr[buff->len], s, len);
+    buff->b = ptr;
+    buff->len += len;
+}
+
+
+void buff_free(struct O_buff* buff){
+    free(buff->b);
+}
+/* IO Buffer functions */
+
 
 int main(int argc, char** argv){
     char c;
-    char quit_char = 'q';
 
     enable_raw_mode();
+    init_editor();
+    editor_refresh_screen();
     while(1){
-        if(read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN)
-            die("read");
+        editor_read_key(&c);
+        editor_process_key(&c);
 
-        // if control char
-        if(iscntrl(c)){
-            printf("%d\r\n", c);
-        }else{
-            printf("%d ('%c') \r\n", c, c);
-        }
-
-        // exit while loop when type q
-        if(c == quit_char) break;
         c = '\0';
     }
 
     return 0;
 }
 
-// you could replace most of code here with the function cfmakeraw
+void init_editor(){
+    if(get_win_size(&e_config.rows, &e_config.cols) == -1)
+        die("get_win_size");
+}
+
 void enable_raw_mode(){
-    if(tcgetattr(STDIN_FILENO, &orig_termios) == -1)
+    if(tcgetattr(STDIN_FILENO, &e_config.orig_termios) == -1)
         die("tcgetattr");
 
-    atexit(disable_raw_mode);
-    struct termios raw = orig_termios;
-
-    // IXON (so ctrl+q and ctrl+s gets translated as raw bytes)
-    // ICRNL (to translate ctrl+m as `\n` instead of `\r`)
-    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    // turn off `\r\n` which is emited by defulat by the terminal when translating `\n`
-    raw.c_oflag &= ~(OPOST);
-    // set char size to be 8bits per byte
-    raw.c_cflag |= (CS8);
-    // ECHO (so you don't see what you're typing)
-    // ISIG (so ctrl+c and ctrl+z gets translated as raw bytes)
-    // IEXTEN (so ctrl+v gets translated as raw bytes)
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-
+    struct termios raw = e_config.orig_termios;
+    raw.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+    raw.c_oflag &= ~OPOST;
+    raw.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    raw.c_cflag &= ~(CSIZE | PARENB);
+    raw.c_cflag |= CS8;
     // set the minimum number of bytes of input needed before read() can return.
     raw.c_cc[VMIN] = 0;
     // set the maximum amount of time to wait before read() returns. 100 ms or 1/10 of a sec
     raw.c_cc[VTIME] = 1;
 
+    atexit(disable_raw_mode);
     if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
         die("tcsetattr");
 }
 
 void disable_raw_mode(){
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1)
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &e_config.orig_termios) == -1)
         die("tcsetattr");
 }
 
+
+void editor_refresh_screen(){
+    // clear the screen
+    buff_append(&io_buff, "\x1b[2J", 4);
+    // move curser to top
+    buff_append(&io_buff, "\x1b[H", 3);
+    editor_draw_rows();
+    buff_append(&io_buff, "\x1b[H", 3);
+    // printf("buf is %s", io_buff.b);
+    write(STDOUT_FILENO, io_buff.b, io_buff.len);
+    buff_free(&io_buff);
+}
+
+
+void editor_read_key(char* c){
+    if(read(STDIN_FILENO, c, 1) == -1 && errno != EAGAIN)
+        die("read");
+}
+
+
+void editor_process_key(char* c){
+    switch(*c){
+        case CTRL_KEY('q'):
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 4);
+          exit(0);
+          break;
+    }
+}
+
+
+int get_win_size(int* rows, int* cols){
+    struct winsize ws;
+    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
+        // there's a bug here ( prints the char sequnce to termianl)
+        if(write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
+        return get_cursor_pos(rows, cols);
+        // printf("rows %d, cols %d \n", *rows, *cols);
+
+    } else{
+        *rows = ws.ws_row;
+        *cols = ws.ws_col;
+        return 0;
+    }
+}
+
+
+
+
+
+int get_cursor_pos(int* rows, int* cols){
+    if(write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
+
+    char buf[32];
+    unsigned int i = 0;
+
+    while(i < sizeof(buf) -1){
+        if(read(STDIN_FILENO, &buf[i], 1) != 1) break;
+        if(buf[i] == 'R') break;
+        i++;
+    }
+    buf[i] = '\0';
+
+    if(buf[0] != '\x1b' || buf[1] != '[') return -1;
+    if(sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
+
+    return 0;
+}
+
+
+void editor_draw_rows(){
+    int i;
+    // buff[e_config.rows];
+    for (i = 0; i < e_config.rows; i++){
+        buff_append(&io_buff, "~", 1);
+
+        if (i < e_config.rows - 1)
+            buff_append(&io_buff, "\r\n", 2);
+    }
+}
+
 void die(const char* err){
+    editor_refresh_screen();
     perror(err);
     exit(1);
 }
