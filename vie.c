@@ -17,9 +17,21 @@ struct editor_config {
     int cx, cy;
     int rows;
     int cols;
+    int read_mod;
     struct termios orig_termios;
 } e_config;
 
+enum editor_keys {
+    ARROW_LEFT          = 'h',
+    ARROW_RIGHT         = 'l',
+    ARROW_UP            = 'k',
+    ARROW_DOWN          = 'j',
+    PAGE_UP             = 21,
+    PAGE_DOWN           = 4,
+    LINE_END            = 36,
+    LINE_START          = 94,
+    DEL_KEY             = 1000,
+};
 
 /* IO Buffer functions */
 struct O_buff {
@@ -50,16 +62,14 @@ void buff_free(struct O_buff* buff){
 
 
 int main(int argc, char** argv){
-    char c;
-
     enable_raw_mode();
     init_editor();
+    int c;
     while(1){
         editor_refresh_screen();
-        editor_read_key(&c);
-        editor_process_key(&c);
-
-        c = '\0';
+        c = editor_read_key();
+        // printf("char is %d %c\n", c, c);
+        editor_process_key(c);
     }
 
     return 0;
@@ -68,6 +78,7 @@ int main(int argc, char** argv){
 void init_editor(){
     e_config.cx = 0;
     e_config.cy = 0;
+    e_config.read_mod = 1;
     if(get_win_size(&e_config.rows, &e_config.cols) == -1)
         die("get_win_size");
 }
@@ -123,31 +134,106 @@ void editor_refresh_screen(){
 }
 
 
-void editor_read_key(char* c){
-    if(read(STDIN_FILENO, c, 1) == -1 && errno != EAGAIN)
-        die("read");
+int  editor_read_key(){
+    char c = '\0';
+    if(read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
+
+    // read multip char
+    if(c == '\x1b'){
+        char seq[3];
+        if(read(STDIN_FILENO, &seq[0], 1) == -1 && errno != EAGAIN) return c;
+        if(read(STDIN_FILENO, &seq[1], 1) == -1 && errno != EAGAIN) return c;
+        if (seq[0] == '[') {
+
+            if (seq[1] >= '0' && seq[1] <= '9') {
+                if (read(STDIN_FILENO, &seq[2], 1) != 1) return c;
+
+                if (seq[2] == '~') {
+                    switch (seq[1]) {
+                        case '3': return DEL_KEY;
+                    }
+                }
+            }
+
+            switch (seq[1]) {
+                case 'A': return ARROW_UP;
+                case 'B': return ARROW_DOWN;
+                case 'C': return ARROW_RIGHT;
+                case 'D': return ARROW_LEFT;
+            }
+        }
+    }
+    return c;
 }
 
 
-void editor_process_key(char* c){
-    switch(*c){
+void editor_process_key(int chr){
+    // printf("char is %d %c\n", chr, chr);
+    switch(chr){
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 4);
             exit(0);
             break;
-        /* move cursor */
-        case 'k': /* up */
-            e_config.cy--;
+
+        case 'k':
+        case 'l':
+        case 'h':
+        case 'j':
+        case 4:
+        case 21:
+        case 36:
+        case 94:
+            if(e_config.read_mod){
+                editor_move_cursor(chr);
+            } else {
+                // buff_append(&io_buff, &chr);
+            }
             break;
-        case 'l': /* left */
-            e_config.cx++;
+
+        case 'i':
+            e_config.read_mod = 0;
             break;
-        case 'h': /* right */
-            e_config.cx--;
+        case DEL_KEY:
+            e_config.cx = 0; // not usefull now
             break;
-        case 'j': /* down */
-            e_config.cy++;
+    }
+}
+
+
+void editor_move_cursor(int c){
+    switch(c){
+        case ARROW_UP:
+            if(e_config.cy != 0)
+                e_config.cy--;
+            break;
+        case ARROW_RIGHT:
+            if(e_config.cx != e_config.cols - 1)
+                e_config.cx++;
+            break;
+        case ARROW_LEFT:
+            if(e_config.cx != 0)
+                e_config.cx--;
+            break;
+        case ARROW_DOWN:
+            if(e_config.cy != e_config.rows - 1)
+                e_config.cy++;
+            break;
+
+        case PAGE_UP:
+        case PAGE_DOWN:
+            {
+                int times = e_config.rows;
+                while (times--)
+                    editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+            }
+            break;
+
+        case LINE_END:
+            e_config.cx = e_config.cols - 1;
+            break;
+        case LINE_START:
+            e_config.cx = 0;
             break;
     }
 }
