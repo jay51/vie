@@ -9,6 +9,8 @@
 #include "vie.h"
 
 
+#define VIE_VERSION "0.0.1"
+
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 struct editor_config {
@@ -70,11 +72,15 @@ void enable_raw_mode(){
         die("tcgetattr");
 
     struct termios raw = e_config.orig_termios;
+#ifdef __FreeBSD__
+    cfmakeraw(&raw);
+#else
     raw.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
     raw.c_oflag &= ~OPOST;
     raw.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
     raw.c_cflag &= ~(CSIZE | PARENB);
     raw.c_cflag |= CS8;
+#endif
     // set the minimum number of bytes of input needed before read() can return.
     raw.c_cc[VMIN] = 0;
     // set the maximum amount of time to wait before read() returns. 100 ms or 1/10 of a sec
@@ -92,12 +98,16 @@ void disable_raw_mode(){
 
 
 void editor_refresh_screen(){
+    // hide the cursor
+    buff_append(&io_buff, "\x1b[?25l", 6);
     // clear the screen
-    buff_append(&io_buff, "\x1b[2J", 4);
+    // buff_append(&io_buff, "\x1b[2J", 4);
     // move curser to top
     buff_append(&io_buff, "\x1b[H", 3);
     editor_draw_rows();
     buff_append(&io_buff, "\x1b[H", 3);
+    // reveal cursor
+    buff_append(&io_buff, "\x1b[?25h", 6);
     // printf("buf is %s", io_buff.b);
     write(STDOUT_FILENO, io_buff.b, io_buff.len);
     buff_free(&io_buff);
@@ -164,7 +174,28 @@ void editor_draw_rows(){
     int i;
     // buff[e_config.rows];
     for (i = 0; i < e_config.rows; i++){
-        buff_append(&io_buff, "~", 1);
+        if(i == e_config.rows / 3){
+            char welcome[80];
+            int msg_size = snprintf(welcome, sizeof(welcome), "vieo editor -- version %s", VIE_VERSION);
+            if(msg_size > e_config.cols)
+                msg_size = e_config.cols;
+
+            // center msg
+            int padding = (e_config.cols - msg_size) / 2;
+            if(padding){
+                buff_append(&io_buff, "~", 1);
+                padding--;
+            }
+            while(padding--)
+                buff_append(&io_buff, " ", 1);
+
+            buff_append(&io_buff, welcome, msg_size);
+        } else{
+            buff_append(&io_buff, "~", 1);
+        }
+
+        // clear each individual line (from active position to line end)
+        buff_append(&io_buff, "\x1b[K", 3);
 
         if (i < e_config.rows - 1)
             buff_append(&io_buff, "\r\n", 2);
