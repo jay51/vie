@@ -14,6 +14,7 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 struct editor_config {
+    int cx, cy;
     int rows;
     int cols;
     struct termios orig_termios;
@@ -26,8 +27,8 @@ struct O_buff {
     int len;
 } io_buff = {NULL, 0};
 
-void buff_append(struct O_buff* buff, char* s, int len){
-
+void buff_append(struct O_buff* buff, char* s){
+    int len = strlen(s);
     char* ptr = realloc(buff->b, buff->len + len);
     if(ptr == NULL){
         perror("realloc");
@@ -42,6 +43,8 @@ void buff_append(struct O_buff* buff, char* s, int len){
 
 void buff_free(struct O_buff* buff){
     free(buff->b);
+    buff->b = NULL;
+    buff->len = 0;
 }
 /* IO Buffer functions */
 
@@ -51,8 +54,8 @@ int main(int argc, char** argv){
 
     enable_raw_mode();
     init_editor();
-    editor_refresh_screen();
     while(1){
+        editor_refresh_screen();
         editor_read_key(&c);
         editor_process_key(&c);
 
@@ -63,6 +66,8 @@ int main(int argc, char** argv){
 }
 
 void init_editor(){
+    e_config.cx = 0;
+    e_config.cy = 0;
     if(get_win_size(&e_config.rows, &e_config.cols) == -1)
         die("get_win_size");
 }
@@ -99,17 +104,21 @@ void disable_raw_mode(){
 
 void editor_refresh_screen(){
     // hide the cursor
-    buff_append(&io_buff, "\x1b[?25l", 6);
-    // clear the screen
-    // buff_append(&io_buff, "\x1b[2J", 4);
+    buff_append(&io_buff, "\x1b[?25l");
     // move curser to top
-    buff_append(&io_buff, "\x1b[H", 3);
+    buff_append(&io_buff, "\x1b[H");
     editor_draw_rows();
-    buff_append(&io_buff, "\x1b[H", 3);
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy+1, e_config.cx+1);
+    buff_append(&io_buff, buf);
+
     // reveal cursor
-    buff_append(&io_buff, "\x1b[?25h", 6);
-    // printf("buf is %s", io_buff.b);
+    buff_append(&io_buff, "\x1b[?25h");
     write(STDOUT_FILENO, io_buff.b, io_buff.len);
+    // char len[32];
+    // snprintf(len, sizeof(len), "%ld", strlen(io_buff.b));
+    // write(STDOUT_FILENO, len, strlen(len));
     buff_free(&io_buff);
 }
 
@@ -125,8 +134,21 @@ void editor_process_key(char* c){
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 4);
-          exit(0);
-          break;
+            exit(0);
+            break;
+        /* move cursor */
+        case 'k': /* up */
+            e_config.cy--;
+            break;
+        case 'l': /* left */
+            e_config.cx++;
+            break;
+        case 'h': /* right */
+            e_config.cx--;
+            break;
+        case 'j': /* down */
+            e_config.cy++;
+            break;
     }
 }
 
@@ -183,22 +205,22 @@ void editor_draw_rows(){
             // center msg
             int padding = (e_config.cols - msg_size) / 2;
             if(padding){
-                buff_append(&io_buff, "~", 1);
+                buff_append(&io_buff, "~");
                 padding--;
             }
             while(padding--)
-                buff_append(&io_buff, " ", 1);
+                buff_append(&io_buff, " ");
 
-            buff_append(&io_buff, welcome, msg_size);
+            buff_append(&io_buff, welcome);
         } else{
-            buff_append(&io_buff, "~", 1);
+            buff_append(&io_buff, "~");
         }
 
         // clear each individual line (from active position to line end)
-        buff_append(&io_buff, "\x1b[K", 3);
+        buff_append(&io_buff, "\x1b[K");
 
         if (i < e_config.rows - 1)
-            buff_append(&io_buff, "\r\n", 2);
+            buff_append(&io_buff, "\r\n");
     }
 }
 
