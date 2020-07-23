@@ -1,7 +1,11 @@
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/types.h>
 #include <sys/ioctl.h>
 #include <errno.h>
 #include <string.h>
@@ -13,11 +17,18 @@
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+struct editor_row {
+    int size;
+    char* chars;
+};
+
 struct editor_config {
     int cx, cy;
     int rows;
     int cols;
     int read_mod;
+    int num_rows;
+    struct editor_row row;
     struct termios orig_termios;
 } e_config;
 
@@ -33,37 +44,13 @@ enum editor_keys {
     DEL_KEY             = 1000,
 };
 
-/* IO Buffer functions */
-struct O_buff {
-    char *b;
-    int len;
-} io_buff = {NULL, 0};
-
-void buff_append(struct O_buff* buff, char* s){
-    int len = strlen(s);
-    char* ptr = realloc(buff->b, buff->len + len);
-    if(ptr == NULL){
-        perror("realloc");
-        exit(1);
-    }
-
-    memcpy(&ptr[buff->len], s, len);
-    buff->b = ptr;
-    buff->len += len;
-}
-
-
-void buff_free(struct O_buff* buff){
-    free(buff->b);
-    buff->b = NULL;
-    buff->len = 0;
-}
-/* IO Buffer functions */
-
 
 int main(int argc, char** argv){
     enable_raw_mode();
     init_editor();
+    if(argc >= 2)
+        editor_open(argv[1]);
+
     int c;
     while(1){
         editor_refresh_screen();
@@ -76,9 +63,10 @@ int main(int argc, char** argv){
 }
 
 void init_editor(){
+    e_config.read_mod = 1;
+    e_config.num_rows = 0;
     e_config.cx = 0;
     e_config.cy = 0;
-    e_config.read_mod = 1;
     if(get_win_size(&e_config.rows, &e_config.cols) == -1)
         die("get_win_size");
 }
@@ -239,6 +227,69 @@ void editor_move_cursor(int c){
 }
 
 
+void editor_draw_rows(){
+    int i;
+    // buff[e_config.rows];
+    for (i = 0; i < e_config.rows; i++){
+        if(i >= e_config.num_rows){
+            if(e_config.num_rows == 0 && i == e_config.rows / 3){
+                char welcome[80];
+                int msg_size = snprintf(welcome, sizeof(welcome), "vieo editor -- version %s", VIE_VERSION);
+                if(msg_size > e_config.cols)
+                    msg_size = e_config.cols;
+
+                // center msg
+                int padding = (e_config.cols - msg_size) / 2;
+                if(padding){
+                    buff_append(&io_buff, "~");
+                    padding--;
+                }
+                while(padding--)
+                    buff_append(&io_buff, " ");
+
+                buff_append(&io_buff, welcome);
+            } else
+                buff_append(&io_buff, "~");
+
+        } else {
+            int len = e_config.row.size;
+            if(len > e_config.cols) len = e_config.cols;
+            buff_appendlen(&io_buff, e_config.row.chars, len);
+        }
+
+        // clear each individual line (from active position to line end)
+        buff_append(&io_buff, "\x1b[K");
+        if (i < e_config.rows - 1)
+            buff_append(&io_buff, "\r\n");
+    }
+}
+
+
+void editor_open(char* filename){
+    FILE* fp = fopen(filename, "r");
+    if(!fp) die("fopen");
+
+    char* line = NULL;
+    size_t cap = 0;
+    ssize_t len;
+
+    len = getline(&line, &cap, fp);
+    if(len != -1){
+        // strip out \n and \r
+        while(len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            len--;
+
+        e_config.row.size = len;
+        e_config.row.chars = malloc(sizeof(char) * len + 1);
+        memcpy(e_config.row.chars, line, len);
+        e_config.row.chars[len] = '\0';
+        e_config.num_rows = 1;
+    }
+    free(line);
+    fclose(fp);
+}
+
+
 int get_win_size(int* rows, int* cols){
     struct winsize ws;
     if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
@@ -253,8 +304,6 @@ int get_win_size(int* rows, int* cols){
         return 0;
     }
 }
-
-
 
 
 
@@ -277,38 +326,6 @@ int get_cursor_pos(int* rows, int* cols){
     return 0;
 }
 
-
-void editor_draw_rows(){
-    int i;
-    // buff[e_config.rows];
-    for (i = 0; i < e_config.rows; i++){
-        if(i == e_config.rows / 3){
-            char welcome[80];
-            int msg_size = snprintf(welcome, sizeof(welcome), "vieo editor -- version %s", VIE_VERSION);
-            if(msg_size > e_config.cols)
-                msg_size = e_config.cols;
-
-            // center msg
-            int padding = (e_config.cols - msg_size) / 2;
-            if(padding){
-                buff_append(&io_buff, "~");
-                padding--;
-            }
-            while(padding--)
-                buff_append(&io_buff, " ");
-
-            buff_append(&io_buff, welcome);
-        } else{
-            buff_append(&io_buff, "~");
-        }
-
-        // clear each individual line (from active position to line end)
-        buff_append(&io_buff, "\x1b[K");
-
-        if (i < e_config.rows - 1)
-            buff_append(&io_buff, "\r\n");
-    }
-}
 
 void die(const char* err){
     editor_refresh_screen();
