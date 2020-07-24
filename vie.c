@@ -17,10 +17,10 @@
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
-struct editor_row {
+typedef struct editor_row {
     int size;
     char* chars;
-};
+} editor_row ;
 
 struct editor_config {
     int cx, cy;
@@ -28,7 +28,7 @@ struct editor_config {
     int cols;
     int read_mod;
     int num_rows;
-    struct editor_row row;
+    editor_row* row;
     struct termios orig_termios;
 } e_config;
 
@@ -67,6 +67,8 @@ void init_editor(){
     e_config.num_rows = 0;
     e_config.cx = 0;
     e_config.cy = 0;
+    e_config.row = NULL;
+
     if(get_win_size(&e_config.rows, &e_config.cols) == -1)
         die("get_win_size");
 }
@@ -252,9 +254,9 @@ void editor_draw_rows(){
                 buff_append(&io_buff, "~");
 
         } else {
-            int len = e_config.row.size;
+            int len = e_config.row[i].size;
             if(len > e_config.cols) len = e_config.cols;
-            buff_appendlen(&io_buff, e_config.row.chars, len);
+            buff_appendlen(&io_buff, e_config.row[i].chars, len);
         }
 
         // clear each individual line (from active position to line end)
@@ -273,22 +275,26 @@ void editor_open(char* filename){
     size_t cap = 0;
     ssize_t len;
 
-    len = getline(&line, &cap, fp);
-    if(len != -1){
+    while((len = getline(&line, &cap, fp)) != -1){
         // strip out \n and \r
         while(len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
             len--;
-
-        e_config.row.size = len;
-        e_config.row.chars = malloc(sizeof(char) * len + 1);
-        memcpy(e_config.row.chars, line, len);
-        e_config.row.chars[len] = '\0';
-        e_config.num_rows = 1;
+        editor_append_row(line, len);
     }
     free(line);
     fclose(fp);
 }
 
+void editor_append_row(char* line, size_t len){
+    e_config.row = realloc(e_config.row, sizeof(editor_row) * (e_config.num_rows + 1));
+
+    int at = e_config.num_rows;
+    e_config.row[at].size = len;
+    e_config.row[at].chars = malloc(sizeof(char) * len + 1);
+    memcpy(e_config.row[at].chars, line, len);
+    e_config.row[at].chars[len] = '\0';
+    e_config.num_rows++;
+}
 
 int get_win_size(int* rows, int* cols){
     struct winsize ws;

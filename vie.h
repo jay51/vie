@@ -14,6 +14,7 @@ int  get_win_size(int* rows, int* cols);
 int  get_cursor_pos(int* rows, int* cols);
 void editor_move_cursor(int c);
 void editor_open(char* filename);
+void editor_append_row(char* line, size_t len);
 
 /* IO Buffer functions */
 struct O_buff {
