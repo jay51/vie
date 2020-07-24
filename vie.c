@@ -27,6 +27,7 @@ struct editor_config {
     int rows;
     int cols;
     int row_off;
+    int col_off;
     int read_mod;
     int num_rows;
     editor_row* row;
@@ -63,10 +64,12 @@ int main(int argc, char** argv){
     return 0;
 }
 
+
 void init_editor(){
     e_config.read_mod = 1;
     e_config.num_rows = 0;
     e_config.row_off = 0;
+    e_config.col_off = 0;
     e_config.cx = 0;
     e_config.cy = 0;
     e_config.row = NULL;
@@ -115,6 +118,13 @@ void editor_scroll(){
     if(e_config.cy >= e_config.row_off + e_config.rows){
         e_config.row_off = e_config.cy - e_config.rows + 1;
     }
+
+    if (e_config.cx < e_config.col_off) {
+        e_config.col_off = e_config.cx;
+    }
+    if (e_config.cx >= e_config.col_off + e_config.cols) {
+        e_config.col_off = e_config.cx - e_config.cols + 1;
+    }
 }
 
 void editor_refresh_screen(){
@@ -127,7 +137,7 @@ void editor_refresh_screen(){
 
     char buf[32];
     // we never draw the cursor go down pass the screen; only the y positoin
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy - e_config.row_off + 1, e_config.cx+1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy - e_config.row_off + 1, e_config.cx - e_config.col_off + 1);
     buff_append(&io_buff, buf);
 
     // reveal cursor
@@ -208,22 +218,25 @@ void editor_process_key(int chr){
 
 
 void editor_move_cursor(int c){
+    // not sure if we need the ternery here
+    editor_row* curr_row = (e_config.cy >= e_config.num_rows)? NULL:&e_config.row[e_config.cy];
     switch(c){
         case ARROW_UP:
             if(e_config.cy != 0)
                 e_config.cy--;
             break;
         case ARROW_RIGHT:
-            if(e_config.cx != e_config.cols - 1)
-                e_config.cx++;
+                if(curr_row && e_config.cx < curr_row->size)
+                    e_config.cx++;
             break;
         case ARROW_LEFT:
             if(e_config.cx != 0)
                 e_config.cx--;
             break;
         case ARROW_DOWN:
-            if(e_config.cy < e_config.num_rows)
+            if(e_config.cy < e_config.num_rows){
                 e_config.cy++;
+            }
             break;
 
         case PAGE_UP:
@@ -241,6 +254,12 @@ void editor_move_cursor(int c){
         case LINE_START:
             e_config.cx = 0;
             break;
+    }
+
+    curr_row = (e_config.cy >= e_config.num_rows) ? NULL : &e_config.row[e_config.cy];
+    int rowlen = curr_row ? curr_row->size : 0;
+    if (e_config.cx > rowlen) {
+        e_config.cx = rowlen;
     }
 }
 
@@ -271,9 +290,10 @@ void editor_draw_rows(){
                 buff_append(&io_buff, "~");
 
         } else {
-            int len = e_config.row[filerow].size;
+            int len = e_config.row[filerow].size - e_config.col_off;
+            if(len < 0) len = 0;
             if(len > e_config.cols) len = e_config.cols;
-            buff_appendlen(&io_buff, e_config.row[filerow].chars, len);
+            buff_appendlen(&io_buff, &e_config.row[filerow].chars[e_config.col_off], len);
         }
 
         // clear each individual line (from active position to line end)
