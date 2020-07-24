@@ -26,6 +26,7 @@ struct editor_config {
     int cx, cy;
     int rows;
     int cols;
+    int row_off;
     int read_mod;
     int num_rows;
     editor_row* row;
@@ -65,6 +66,7 @@ int main(int argc, char** argv){
 void init_editor(){
     e_config.read_mod = 1;
     e_config.num_rows = 0;
+    e_config.row_off = 0;
     e_config.cx = 0;
     e_config.cy = 0;
     e_config.row = NULL;
@@ -103,7 +105,20 @@ void disable_raw_mode(){
 }
 
 
+void editor_scroll(){
+    // if y positon less than offset the file cursor will scroll from rows[offsite=0 + y] for scrolling up
+    if(e_config.cy < e_config.row_off){
+        e_config.row_off = e_config.cy;
+    }
+
+    // if y positon >= than offset the file cursor will scroll from rows[offsite + y] for scrolling down
+    if(e_config.cy >= e_config.row_off + e_config.rows){
+        e_config.row_off = e_config.cy - e_config.rows + 1;
+    }
+}
+
 void editor_refresh_screen(){
+    editor_scroll();
     // hide the cursor
     buff_append(&io_buff, "\x1b[?25l");
     // move curser to top
@@ -111,7 +126,8 @@ void editor_refresh_screen(){
     editor_draw_rows();
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy+1, e_config.cx+1);
+    // we never draw the cursor go down pass the screen; only the y positoin
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy - e_config.row_off + 1, e_config.cx+1);
     buff_append(&io_buff, buf);
 
     // reveal cursor
@@ -206,7 +222,7 @@ void editor_move_cursor(int c){
                 e_config.cx--;
             break;
         case ARROW_DOWN:
-            if(e_config.cy != e_config.rows - 1)
+            if(e_config.cy < e_config.num_rows)
                 e_config.cy++;
             break;
 
@@ -233,7 +249,8 @@ void editor_draw_rows(){
     int i;
     // buff[e_config.rows];
     for (i = 0; i < e_config.rows; i++){
-        if(i >= e_config.num_rows){
+        int filerow = e_config.row_off + i;
+        if(filerow >= e_config.num_rows){
             if(e_config.num_rows == 0 && i == e_config.rows / 3){
                 char welcome[80];
                 int msg_size = snprintf(welcome, sizeof(welcome), "vieo editor -- version %s", VIE_VERSION);
@@ -254,9 +271,9 @@ void editor_draw_rows(){
                 buff_append(&io_buff, "~");
 
         } else {
-            int len = e_config.row[i].size;
+            int len = e_config.row[filerow].size;
             if(len > e_config.cols) len = e_config.cols;
-            buff_appendlen(&io_buff, e_config.row[i].chars, len);
+            buff_appendlen(&io_buff, e_config.row[filerow].chars, len);
         }
 
         // clear each individual line (from active position to line end)
@@ -267,10 +284,10 @@ void editor_draw_rows(){
 }
 
 
+
 void editor_open(char* filename){
     FILE* fp = fopen(filename, "r");
     if(!fp) die("fopen");
-
     char* line = NULL;
     size_t cap = 0;
     ssize_t len;
