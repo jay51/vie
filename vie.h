@@ -1,6 +1,13 @@
 #ifndef VIE_H
 #define VIE_H
 
+typedef struct editor_row {
+    int size;
+    char* chars;
+    int rsize;
+    char* render;
+} editor_row;
+
 void enable_raw_mode();
 void disable_raw_mode();
 void die(const char* err);
@@ -15,6 +22,7 @@ int  get_cursor_pos(int* rows, int* cols);
 void editor_move_cursor(int c);
 void editor_open(char* filename);
 void editor_append_row(char* line, size_t len);
+void editor_update_row(editor_row* row);
 void editor_scroll();
 
 /* IO Buffer functions */

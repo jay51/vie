@@ -14,13 +14,9 @@
 
 
 #define VIE_VERSION "0.0.1"
-
 #define CTRL_KEY(k) ((k) & 0x1f)
+#define VIE_TAB_STOP  8
 
-typedef struct editor_row {
-    int size;
-    char* chars;
-} editor_row ;
 
 struct editor_config {
     int cx, cy;
@@ -290,10 +286,10 @@ void editor_draw_rows(){
                 buff_append(&io_buff, "~");
 
         } else {
-            int len = e_config.row[filerow].size - e_config.col_off;
+            int len = e_config.row[filerow].rsize - e_config.col_off;
             if(len < 0) len = 0;
             if(len > e_config.cols) len = e_config.cols;
-            buff_appendlen(&io_buff, &e_config.row[filerow].chars[e_config.col_off], len);
+            buff_appendlen(&io_buff, &e_config.row[filerow].render[e_config.col_off], len);
         }
 
         // clear each individual line (from active position to line end)
@@ -331,7 +327,41 @@ void editor_append_row(char* line, size_t len){
     memcpy(e_config.row[at].chars, line, len);
     e_config.row[at].chars[len] = '\0';
     e_config.num_rows++;
+    e_config.row[at].rsize = 0;
+    e_config.row[at].render = NULL;
+    editor_update_row(&e_config.row[at]);
 }
+
+
+/*
+* This function modifies the chars displayed in the editor
+* like replace tabs \t with sapces.
+*/
+void editor_update_row(editor_row* row){
+    int tabs = 0;
+    int j;
+    // count the number of tabs to allocat enough memory
+    for(j = 0; j < row->size; j++)
+        if(row->chars[j] == '\t') tabs++;
+
+    // 7 is the number of spaces replacing the 1 tab (VIE_TAB_STOP - 1) + 1
+    row->render = malloc(row->size + tabs * (VIE_TAB_STOP - 1) + 1);
+
+    int idx = 0;
+    for(j = 0;j<row->size; j++){
+        if(row->chars[j] == '\t'){
+            row->render[idx++] = ' ';
+            // idx % 8 != is to add 7 spaces; we could also just set idx to 0 at end of loop instead
+            while(idx % VIE_TAB_STOP != 0) row->render[idx++] = ' ';
+        }
+        else
+            row->render[idx++] = row->chars[j];
+    }
+
+    row->render[idx] = '\0';
+    row->rsize = idx;
+}
+
 
 int get_win_size(int* rows, int* cols){
     struct winsize ws;
