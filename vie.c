@@ -28,6 +28,7 @@ struct editor_config {
     int num_rows; /* num of rows in file */
     editor_row* row;
     struct termios orig_termios;
+    char* filename;
 } e_config;
 
 enum editor_keys {
@@ -70,9 +71,11 @@ void init_editor(){
     e_config.cy = 0;
     e_config.rx = 0;
     e_config.row = NULL;
+    e_config.filename = NULL;
 
     if(get_win_size(&e_config.rows, &e_config.cols) == -1)
         die("get_win_size");
+    e_config.rows--; // last line will be the status bar
 }
 
 void enable_raw_mode(){
@@ -146,6 +149,7 @@ void editor_refresh_screen(){
     // move curser to top
     buff_append(&io_buff, "\x1b[H");
     editor_draw_rows();
+    editor_draw_statusbar();
 
     char buf[32];
     // we never draw the cursor go down pass the screen; only the y positoin
@@ -253,7 +257,7 @@ void editor_move_cursor(int c){
         case PAGE_UP:
         case PAGE_DOWN:
             {
-                int times = e_config.rows;
+                int times = e_config.rows - 1;
                 while (times--)
                     editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
             }
@@ -309,14 +313,36 @@ void editor_draw_rows(){
 
         // clear each individual line (from active position to line end)
         buff_append(&io_buff, "\x1b[K");
-        if (i < e_config.rows - 1)
-            buff_append(&io_buff, "\r\n");
+        buff_append(&io_buff, "\r\n");
     }
 }
 
 
+void editor_draw_statusbar(){
+    buff_append(&io_buff, "\x1b[7m"); // switch to inverted colors
+    char status[80], rstatus[80];
+    int len  = snprintf(status, sizeof(status), "%.20s - %dL",
+        e_config.filename ? e_config.filename : "[No Name]", e_config.num_rows);
+
+    int rlen  = snprintf(rstatus, sizeof(rstatus), "%d, %d", e_config.cy, e_config.cx);
+
+    if (len > e_config.cols) len = e_config.cols;
+        buff_appendlen(&io_buff, status, len);
+
+    while(len < e_config.cols){
+        if(e_config.cols - len == rlen){
+            buff_appendlen(&io_buff, rstatus, rlen);
+            break;
+        }
+        buff_append(&io_buff, " ");
+        len++;
+    }
+    buff_append(&io_buff, "\x1b[m"); // switch inverted colors off
+}
 
 void editor_open(char* filename){
+    e_config.filename = strdup(filename);
+
     FILE* fp = fopen(filename, "r");
     if(!fp) die("fopen");
     char* line = NULL;
