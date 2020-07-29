@@ -23,6 +23,7 @@ void editor_move_cursor(int c);
 void editor_open(char* filename);
 void editor_append_row(char* line, size_t len);
 void editor_update_row(editor_row* row);
+int editor_cx_to_rx(editor_row* row, int cx);
 void editor_scroll();
 
 /* IO Buffer functions */

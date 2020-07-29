@@ -19,13 +19,13 @@
 
 
 struct editor_config {
-    int cx, cy;
+    int cx, cy, rx;
     int rows;
     int cols;
     int row_off;
     int col_off;
     int read_mod;
-    int num_rows;
+    int num_rows; /* num of rows in file */
     editor_row* row;
     struct termios orig_termios;
 } e_config;
@@ -68,6 +68,7 @@ void init_editor(){
     e_config.col_off = 0;
     e_config.cx = 0;
     e_config.cy = 0;
+    e_config.rx = 0;
     e_config.row = NULL;
 
     if(get_win_size(&e_config.rows, &e_config.cols) == -1)
@@ -104,7 +105,22 @@ void disable_raw_mode(){
 }
 
 
+int editor_cx_to_rx(editor_row* row, int cx){
+    int rx = 0;
+    for(int j = 0; j < cx; j++){
+        if(row->chars[j] == '\t')
+            rx += (VIE_TAB_STOP - 1) - (rx % VIE_TAB_STOP);
+        rx++;
+    }
+    return rx;
+}
+
 void editor_scroll(){
+    e_config.rx = 0;
+    if(e_config.cy < e_config.num_rows){
+        e_config.rx = editor_cx_to_rx(&e_config.row[e_config.cy], e_config.cx);
+    }
+
     // if y positon less than offset the file cursor will scroll from rows[offsite=0 + y] for scrolling up
     if(e_config.cy < e_config.row_off){
         e_config.row_off = e_config.cy;
@@ -115,11 +131,11 @@ void editor_scroll(){
         e_config.row_off = e_config.cy - e_config.rows + 1;
     }
 
-    if (e_config.cx < e_config.col_off) {
-        e_config.col_off = e_config.cx;
+    if (e_config.rx < e_config.col_off) {
+        e_config.col_off = e_config.rx;
     }
-    if (e_config.cx >= e_config.col_off + e_config.cols) {
-        e_config.col_off = e_config.cx - e_config.cols + 1;
+    if (e_config.rx >= e_config.col_off + e_config.cols) {
+        e_config.col_off = e_config.rx - e_config.cols + 1;
     }
 }
 
@@ -133,7 +149,7 @@ void editor_refresh_screen(){
 
     char buf[32];
     // we never draw the cursor go down pass the screen; only the y positoin
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy - e_config.row_off + 1, e_config.cx - e_config.col_off + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", e_config.cy - e_config.row_off + 1, e_config.rx - e_config.col_off + 1);
     buff_append(&io_buff, buf);
 
     // reveal cursor
@@ -230,9 +246,8 @@ void editor_move_cursor(int c){
                 e_config.cx--;
             break;
         case ARROW_DOWN:
-            if(e_config.cy < e_config.num_rows){
+            if(e_config.cy < e_config.num_rows)
                 e_config.cy++;
-            }
             break;
 
         case PAGE_UP:
@@ -322,13 +337,13 @@ void editor_append_row(char* line, size_t len){
     e_config.row = realloc(e_config.row, sizeof(editor_row) * (e_config.num_rows + 1));
 
     int at = e_config.num_rows;
+    e_config.row[at].rsize = 0;
+    e_config.row[at].render = NULL;
     e_config.row[at].size = len;
     e_config.row[at].chars = malloc(sizeof(char) * len + 1);
     memcpy(e_config.row[at].chars, line, len);
     e_config.row[at].chars[len] = '\0';
     e_config.num_rows++;
-    e_config.row[at].rsize = 0;
-    e_config.row[at].render = NULL;
     editor_update_row(&e_config.row[at]);
 }
 
