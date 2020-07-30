@@ -9,6 +9,7 @@
 #include <sys/ioctl.h>
 #include <errno.h>
 #include <string.h>
+#include <time.h>
 #include <termios.h>
 #include "vie.h"
 
@@ -18,18 +19,6 @@
 #define VIE_TAB_STOP  8
 
 
-struct editor_config {
-    int cx, cy, rx;
-    int rows;
-    int cols;
-    int row_off;
-    int col_off;
-    int read_mod;
-    int num_rows; /* num of rows in file */
-    editor_row* row;
-    struct termios orig_termios;
-    char* filename;
-} e_config;
 
 enum editor_keys {
     ARROW_LEFT          = 'h',
@@ -50,6 +39,8 @@ int main(int argc, char** argv){
     if(argc >= 2)
         editor_open(argv[1]);
 
+    editor_set_statmsg("HELP: Ctrl-Q = quit");
+
     int c;
     while(1){
         editor_refresh_screen();
@@ -67,6 +58,8 @@ void init_editor(){
     e_config.num_rows = 0;
     e_config.row_off = 0;
     e_config.col_off = 0;
+    e_config.statmsg_time = 0;
+    e_config.statmsg[0] = '\0';
     e_config.cx = 0;
     e_config.cy = 0;
     e_config.rx = 0;
@@ -149,7 +142,10 @@ void editor_refresh_screen(){
     // move curser to top
     buff_append(&io_buff, "\x1b[H");
     editor_draw_rows();
-    editor_draw_statusbar();
+    if(strlen(e_config.statmsg))
+        editor_draw_msg();
+    else
+        editor_draw_statusbar();
 
     char buf[32];
     // we never draw the cursor go down pass the screen; only the y positoin
@@ -318,6 +314,17 @@ void editor_draw_rows(){
 }
 
 
+void editor_draw_msg(){
+    int msglen = strlen(e_config.statmsg);
+    buff_append(&io_buff, "\x1b[K");
+    if (msglen > e_config.cols) msglen = e_config.cols;
+    if (msglen && time(NULL) - e_config.statmsg_time < 3)
+        buff_appendlen(&io_buff, e_config.statmsg, msglen);
+    else
+        e_config.statmsg[0] = '\0';
+}
+
+
 void editor_draw_statusbar(){
     buff_append(&io_buff, "\x1b[7m"); // switch to inverted colors
     char status[80], rstatus[80];
@@ -337,6 +344,7 @@ void editor_draw_statusbar(){
         buff_append(&io_buff, " ");
         len++;
     }
+
     buff_append(&io_buff, "\x1b[m"); // switch inverted colors off
 }
 

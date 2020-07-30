@@ -1,5 +1,9 @@
+#include<time.h>
+#include<stdarg.h>
+#include<stdio.h>
 #ifndef VIE_H
 #define VIE_H
+
 
 typedef struct editor_row {
     int size;
@@ -7,6 +11,22 @@ typedef struct editor_row {
     int rsize;
     char* render;
 } editor_row;
+
+struct editor_config {
+    int cx, cy, rx;
+    int rows;
+    int cols;
+    int row_off;
+    int col_off;
+    int read_mod;
+    int num_rows; /* num of rows in file */
+    editor_row* row;
+    struct termios orig_termios;
+    char* filename;
+    char statmsg[80];
+    time_t statmsg_time;
+} e_config;
+
 
 void enable_raw_mode();
 void disable_raw_mode();
@@ -25,8 +45,16 @@ void editor_append_row(char* line, size_t len);
 void editor_update_row(editor_row* row);
 int editor_cx_to_rx(editor_row* row, int cx);
 void editor_scroll();
+void editor_draw_msg();
 void editor_draw_statusbar();
 
+void editor_set_statmsg(const char* fmt, ... ){
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(e_config.statmsg, sizeof(e_config.statmsg), fmt, ap);
+    va_end(ap);
+    e_config.statmsg_time = time(NULL);
+}
 /* IO Buffer functions */
 struct O_buff {
     char *b;
