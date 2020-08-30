@@ -204,27 +204,25 @@ void editor_process_key(int chr){
             exit(0);
             break;
 
-        case 'k':
-        case 'l':
-        case 'h':
-        case 'j':
-        case 4:
-        case 21:
-        case 36:
-        case 94:
-            if(e_config.read_mod){
-                editor_move_cursor(chr);
-            } else {
-                // buff_append(&io_buff, &chr);
-            }
-            break;
-
-        case 'i':
-            e_config.read_mod = 0;
-            break;
         case DEL_KEY:
             e_config.cx = 0; // not usefull now
             break;
+
+        default:
+            if(e_config.read_mod){
+                if(chr == 'i')
+                    e_config.read_mod = 0;
+                else
+                    editor_move_cursor(chr);
+
+            } else if (chr == 3){
+                e_config.read_mod = 1;
+
+            } else if (chr != 0 && chr >= 32 && chr <= 126){
+                editor_insert_char(chr);
+            }
+            break;
+
     }
 }
 
@@ -410,6 +408,38 @@ void editor_update_row(editor_row* row){
     row->render[idx] = '\0';
     row->rsize = idx;
 }
+
+
+/*
+* If E.cy == E.numrows, then the cursor is on the tilde line after the end of the file,
+* so we need to append a new row to the file before inserting a character there.
+* After inserting a character, we move the cursor forward so that the next character
+* the user inserts will go after the character just inserted.
+*/
+void editor_insert_char(int c){
+    if(e_config.cy == e_config.num_rows){
+        editor_append_row("", 0);
+    }
+
+    editor_row_insert_char(
+        &e_config.row[e_config.cy],
+        e_config.cx,
+        c
+    );
+    e_config.cx++;
+}
+
+
+
+void editor_row_insert_char(editor_row* row, int at, int c){
+    if(at < 0 || at > row->size) at = row->size;
+    row->chars = realloc(row->chars, row->size + 2);
+    memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
+    row->chars[at] = c;
+    row->size++;
+    editor_update_row(row);
+}
+
 
 
 int get_win_size(int* rows, int* cols){

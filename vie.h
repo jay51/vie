@@ -47,6 +47,8 @@ int editor_cx_to_rx(editor_row* row, int cx);
 void editor_scroll();
 void editor_draw_msg();
 void editor_draw_statusbar();
+void editor_row_insert_char(editor_row* row, int at, int c);
+void editor_insert_char(int c);
 
 void editor_set_statmsg(const char* fmt, ... ){
     va_list ap;
