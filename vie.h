@@ -49,6 +49,8 @@ void editor_draw_msg();
 void editor_draw_statusbar();
 void editor_row_insert_char(editor_row* row, int at, int c);
 void editor_insert_char(int c);
+char* editor_rows_To_String(int *buflen);
+void editor_save();
 
 void editor_set_statmsg(const char* fmt, ... ){
     va_list ap;

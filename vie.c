@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+#include <fcntl.h>
 #include <termios.h>
 #include "vie.h"
 
@@ -20,6 +21,7 @@
 
 
 
+// READ_KEY            = 3, // ctrl + c
 enum editor_keys {
     ARROW_LEFT          = 'h',
     ARROW_RIGHT         = 'l',
@@ -30,6 +32,9 @@ enum editor_keys {
     LINE_END            = 36,
     LINE_START          = 94,
     DEL_KEY             = 1000,
+    INSERT_KEY          = 'i',
+    BACKSPACE           = 127,
+    ENTER               = '\r',
 };
 
 
@@ -204,18 +209,32 @@ void editor_process_key(int chr){
             exit(0);
             break;
 
-        case DEL_KEY:
+        case ENTER:
             e_config.cx = 0; // not usefull now
             break;
 
+        case DEL_KEY:
+        case BACKSPACE:
+            // TODO:
+            e_config.cx = 0; // not usefull now
+            break;
+
+        case CTRL_KEY('s'):
+            editor_save();
+            break;
+        // Escape key. not usefulint buflenl
+        case CTRL_KEY('l'):
+        case '\x1b':
+          break;
+
         default:
             if(e_config.read_mod){
-                if(chr == 'i')
+                if(chr == INSERT_KEY)
                     e_config.read_mod = 0;
                 else
                     editor_move_cursor(chr);
 
-            } else if (chr == 3){
+            } else if (chr == CTRL_KEY('c')){
                 e_config.read_mod = 1;
 
             } else if (chr != 0 && chr >= 32 && chr <= 126){
@@ -379,6 +398,37 @@ void editor_append_row(char* line, size_t len){
     editor_update_row(&e_config.row[at]);
 }
 
+// convert all rows to a single long string sperated by \n
+char* editor_rows_To_String(int *buflen){
+    int len = 0;
+    for(int i =0; i < e_config.num_rows; i++)
+        len += e_config.row[i].size + 1;
+    *buflen = len;
+
+    char* buff = malloc(len);
+    char* p = buff;
+    for(int i =0; i < e_config.num_rows; i++){
+        memcpy(p, e_config.row[i].chars, e_config.row[i].size);
+        p += e_config.row[i].size;
+        *p = '\n';
+        p++;
+    }
+    return buff;
+}
+
+
+void editor_save(){
+    if(e_config.filename == NULL) return;
+
+    int len;
+    char* buff = editor_rows_To_String(&len);
+    int fd = open(e_config.filename, O_RDWR | O_CREAT, 0644);
+    // resize the file
+    ftruncate(fd, len);
+    write(fd, buff, len);
+    close(fd);
+    free(buff);
+}
 
 /*
 * This function modifies the chars displayed in the editor
