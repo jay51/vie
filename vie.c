@@ -423,11 +423,20 @@ void editor_save(){
     int len;
     char* buff = editor_rows_To_String(&len);
     int fd = open(e_config.filename, O_RDWR | O_CREAT, 0644);
-    // resize the file
-    ftruncate(fd, len);
-    write(fd, buff, len);
-    close(fd);
+    if(fd != -1){
+        // resize the file
+        if(ftruncate(fd, len) != -1){
+            if(write(fd, buff, len) == len){
+                close(fd);
+                free(buff);
+                editor_set_statmsg("%d bytes written to disk", len);
+                return;
+            }
+        }
+        close(fd);
+    }
     free(buff);
+    editor_set_statmsg("Can't save! I/O error: %s", strerror(errno));
 }
 
 /*
